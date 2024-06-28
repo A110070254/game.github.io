@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #game {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            height: 550px;
+            background-color: rgb(217, 217, 217);
+
+        }
+
+        canvas {
+             width: 100%;
+            height: 550px;
+            display: block;
+            border: 1px solid black;
+            background-color: lightblue;
+        }
+
+        #pane {
+            position: absolute;
+            top: 10px;
+            left: 25%;
+            background-color: white;
+            border: 2px solid black;
+            padding: 10px;
+            width: 800px;
+            height: 530px;
+        }
+
+        #aiResponse {
+            background-color: white;
+            border: 2px solid black;
+            padding: 10px;
+            /* 新增 */
+            /* 新增 */
+        }
+
+        #dialogueBox {
+            width: 780px;
+            background-color: rgb(255, 236, 183);
+            border: 2px solid black;
+            padding: 10px;
+            height: 100px;
+            margin-left: 0px;
+            /* 新增 */
+            overflow: auto;
+            /* 新增 */
+        }
+        */
+    </style>
+</head>
+
+<body>
+    <div id="game">
+        <div>
+            <canvas id="gameCanvas" width="1500" height="550"></canvas>
+            <img id="shipImg1" src="img/ship(1).png" style="display:none;">
+            <img id="shipImg2" src="img/ship(2).png" style="display:none;">
+
+        </div>
+    <div id="pane" style="display: none;">
+        <div id="aiResponse"></div> <!-- 新方框用於顯示AI文字和圖片 -->
+
+
+        <!-- 對話框 -->
+        <div id="dialogueBox">
+            <div id="chatHistory"></div>
+            <input type="text" id="userInput" placeholder="輸入答案...">
+            <button onclick="sendMessage()">發送</button>
+
+        </div>
+    </div>
+
+
+
+
+    <script>
+    var canvas = document.getElementById("gameCanvas");
+    var ctx = canvas.getContext("2d");
+
+    var mapWidth = 1200;
+    var mapHeight = 800;
+
+    var shipX = mapWidth / 2;
+    var shipY = mapHeight / 2;
+    var shipSpeed = 2;
+    var shipWidth = 60;
+    var shipHeight = 60;
+    var shipRotation = 0;
+    var rotationSpeed = 0.03;
+
+    var health = 100; // Initialize health
+    var healthDecreaseRate = 1; // Health decrease rate per second
+
+    var objects = [
+        { x: 200, y: 300 },
+        { x: 500, y: 100 },
+        { x: 900, y: 600 }
+    ];
+
+    var keys = {};
+
+    function checkCollisions() {
+        for (var i = 0; i < objects.length; i++) {
+            var object = objects[i];
+            var distance = Math.sqrt(Math.pow(shipX - object.x, 2) + Math.pow(shipY - object.y, 2));
+            if (distance < 50) {
+                callCollisionAPI(); // 當船碰到物體時呼叫API連結
+                objects.splice(i, 1);
+                health+=20;
+                if (health > 100) {
+                    health = 100; // Ensure health does not exceed 100 immediately after collision
+                }
+            }
+        }
+    }
+
+    function callCollisionAPI() {
+        // 清空舊的回應
+        document.getElementById("pane").style.display = "block";
+
+        document.getElementById("aiResponse").innerHTML = '';
+
+        // 清空對話框歷史訊息
+        document.getElementById("chatHistory").innerHTML = '';
+
+        fetch('/api/collision', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('API request failed');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // 在這裡處理從API收到的回應
+                console.log('API response:', data);
+
+                // 在新方框中顯示 AI 文字和圖片
+                var aiResponseElement = document.getElementById("aiResponse");
+                aiResponseElement.innerHTML = `
+                    <div style="display: flex; align-items: center;">
+                        <p style="margin-right: 10px;">${data.answer}</p>
+                        <img src="${data.image}" alt="Generated Image" style="max-width: 50%;">
+                    </div>
+                `;
+            })
+            .catch(error => {
+                console.error('API request error:', error);
+            });
+    }
+
+    function sendMessage() {
+        var userInput = document.getElementById("userInput").value;
+        addMessage("You", userInput);
+
+        fetch('/api/dialogue', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: userInput
+            })
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('API request failed');
+                }
+                return response.json();
+            })
+            .then(data => {
+                addMessage("AI", data.answer);
+            })
+            .catch(error => {
+                console.error('API request error:', error);
+                addMessage("AI", "Oops! Something went wrong.");
+            })
+            .finally(() => {
+                var closeButton = document.createElement("button");
+                closeButton.textContent = "關閉";
+                closeButton.style.marginLeft = "85%";
+                closeButton.style.borderColor = "red";
+                closeButton.addEventListener("click", function () {
+                    document.getElementById("pane").style.display = "none";
+                });
+
+                var aiResponseElement = document.getElementById("aiResponse");
+                aiResponseElement.appendChild(closeButton);
+            });
+
+        document.getElementById("userInput").value = "";
+    }
+
+    function addMessage(sender, message) {
+        var chatHistory = document.getElementById("chatHistory");
+        var messageElement = document.createElement("div");
+        messageElement.textContent = sender + ": " + message;
+        chatHistory.appendChild(messageElement);
+    }
+
+    let lastDirection = null;
+
+    function decreaseHealth() {
+        health -= healthDecreaseRate;
+
+        if (health > 100) {
+            health = 100;
+        }
+        
+        else if (health < 0) {
+            health = 0;
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        var mapX = canvas.width / 2 - shipX;
+        var mapY = canvas.height / 2 - shipY;
+
+        ctx.fillStyle = "lightblue";
+        ctx.fillRect(mapX, mapY, mapWidth, mapHeight);
+
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 5;
+        ctx.strokeRect(mapX, mapY, mapWidth +90, mapHeight+90);
+
+        ctx.fillStyle = "green";
+        for (var i = 0; i < objects.length; i++) {
+            ctx.fillRect(objects[i].x - 10 + mapX, objects[i].y - 10 + mapY, 20, 20);
+        }
+
+        const shipImg1 = document.getElementById('shipImg1');
+        const shipImg2 = document.getElementById('shipImg2');
+
+        const scaleFactor = 2;
+
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(shipRotation);
+
+        if (lastDirection === "ArrowLeft") {
+            ctx.drawImage(shipImg1, -shipWidth / 2, -shipHeight / 2, shipWidth * scaleFactor, shipHeight * scaleFactor);
+        } else if (lastDirection === "ArrowRight") {
+            ctx.drawImage(shipImg2, -shipWidth / 2, -shipHeight / 2, shipWidth * scaleFactor, shipHeight * scaleFactor);
+        } else {
+            ctx.drawImage(shipImg1, -shipWidth / 2, -shipHeight / 2, shipWidth * scaleFactor, shipHeight * scaleFactor);
+        }
+
+        ctx.restore();
+        var healthBarWidth = 200;
+        var healthBarHeight = 20;
+        var healthBarX = 10;
+        var healthBarY = 10;
+    
+        // 绘制背景
+        ctx.fillStyle = "gray";
+        ctx.fillRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+    
+        // 绘制当前生命值
+        //ctx.fillStyle = health > 70 ? "lightgreen" : (health > 30 ? "yellow" : "red");
+        if (health > 70) {
+            ctx.fillStyle = "lightgreen";
+        } else if (health > 35) {
+            ctx.fillStyle = "yellow";
+        } else if (health > 20) {
+            ctx.fillStyle = "orange";
+        }else {
+            ctx.fillStyle = "red";
+        }
+
+
+        ctx.fillRect(healthBarX, healthBarY, healthBarWidth * (health / 100), healthBarHeight);
+    
+        // 绘制边框
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+    
+        // 绘制生命值文本
+        ctx.fillStyle = "black";
+        ctx.font = "20px Arial";
+        ctx.fillText("Health: " + health, healthBarX + healthBarWidth + 10, healthBarY + 16);
+
+        checkCollisions();
+
+        if (keys["ArrowUp"]) {
+            shipY -= shipSpeed;
+        }
+        if (keys["ArrowDown"]) {
+            shipY += shipSpeed;
+        }
+        if (keys["ArrowRight"]) {
+            lastDirection = "ArrowRight";
+            shipX += shipSpeed;
+        }
+        if (keys["ArrowLeft"]) {
+            lastDirection = "ArrowLeft";
+            shipX -= shipSpeed;
+        }
+
+        if (shipX < 0) {
+            shipX = 0;
+        }
+        if (shipX > mapWidth) {
+            shipX = mapWidth;
+        }
+        if (shipY < 0) {
+            shipY = 0;
+        }
+        if (shipY > mapHeight) {
+            shipY = mapHeight;
+        }
+
+        requestAnimationFrame(draw);
+    }
+
+    setInterval(decreaseHealth, 1000); // Decrease health every second
+
+    document.addEventListener("keydown", function (event) {
+        keys[event.key] = true;
+    });
+
+    document.addEventListener("keyup", function (event) {
+        keys[event.key] = false;
+    });
+
+    draw();
+</script>
+
+</body>
+
+</html>
